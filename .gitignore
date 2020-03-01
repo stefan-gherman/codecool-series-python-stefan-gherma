@@ -146,3 +146,5 @@ fabric.properties
 ### Environment variable script ###
 setenv.sh
 setenv.ps1
+
+data/dump_1000_shows/*
