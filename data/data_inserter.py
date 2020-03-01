@@ -3,10 +3,12 @@ import os
 import sys
 
 import requests
-from psycopg2 import DataError
+from psycopg2 import DataError, sql
 
 import init_db
 from data_manager import execute_select, execute_dml_statement
+
+import tmdbsimple as tmdb
 
 headers = {
     'Content-Type': 'application/json',
@@ -14,174 +16,192 @@ headers = {
     'trakt-api-key': os.environ.get('TRAKT_API_KEY')
 }
 TRAKT_API_URL = 'https://api.trakt.tv'
-TRAKT_MAX_LIMIT = 20
-TRAKT_MAX_SHOW_COUNT = 52500
+TMDB_MAX_SHOW_COUNT = 19999
+tmdb.API_KEY = os.environ.get('TMDB_API_KEY')
+ACTOR_TYPE = {
+    'episode': {'table': 'episode_characters', 'id': 'episode_id'},
+    'season': {'table': 'season_characters', 'id': 'season_id'},
+    'show': {'table': 'show_characters', 'id': 'show_id'},
+}
+START_WITH = 0
 
 
 def main():
-    init_db.init_db()
-    init_db.create_schema()
-    insert_genres()
-    insert_shows(limit=20, max_show_count=100)
+    # init_db.init_db()
+    # init_db.create_schema()
+    # insert_genres()
+    # insert_shows(max_show_count=1000)
+    update_actors()
     # print('Season data inserted')
 
 
 def insert_genres():
-    url = f'{TRAKT_API_URL}/genres/movies'
-    genre_request = requests.get(url, headers=headers)
-    counter = 0
-    trakt_expected_genre_count = len(genre_request.json())
+    genres = tmdb.Genres().tv_list()["genres"]
+    genres += tmdb.Genres().movie_list()["genres"]
+    genres = {x['id']: x for x in genres}.values()
 
-    for i, genre in enumerate(genre_request.json()):
-        statement = "INSERT INTO genres (name) VALUES (%(name)s);"
-        execute_dml_statement(statement, {'name': genre['name']})
+    i = 0
+    for i, genre in enumerate(genres):
+        statement = "INSERT INTO genres (id, name) VALUES (%(id)s, %(name)s) ON CONFLICT DO NOTHING;"
+        execute_dml_statement(statement, genre)
+        progress_bar(i, len(genres), prefix='Inserting genres:')
 
-        progress_bar(i, trakt_expected_genre_count, prefix='Inserting genres:')
-        counter = i
-    clear_progress_bar('Inserted ' + str(counter) + ' genres')
+    clear_progress_bar('Inserted ' + str(i) + ' genres')
 
 
-def insert_shows(limit=20, max_show_count=1000):
-    limit = max(1, min(limit, TRAKT_MAX_LIMIT))
-    max_show_count = max(1, min(max_show_count, TRAKT_MAX_SHOW_COUNT))
+def insert_shows(max_show_count=1000):
+    max_show_count = max(1, min(max_show_count, TMDB_MAX_SHOW_COUNT))
 
-    inserted_ids = []
     result_page = 1
     total_counter = 0
     while total_counter < max_show_count:
-        url = f"{TRAKT_API_URL}/shows/popular?limit={limit}&page={result_page}&extended=full"
+        result_set = tmdb.TV().popular(page=result_page)['results']
         result_page += 1
-        result_set = requests.get(url, headers=headers)
-        if result_set == '[]':
-            break
 
-        for show_raw in result_set.json():
+        for show in result_set:
+            progress_bar(total_counter, max_show_count, prefix='Inserting shows:', suffix=show['name'])
+
+            if total_counter < START_WITH:
+                total_counter += 1
+                continue
+
+            # Some shorts have no id, some has no date, etc... Skip these
+            if show['id'] is None or show['first_air_date'] is None:
+                print('Some data is missing for ' + show['title'] + '. Skipping this show...')
+
+            statement = """
+                INSERT INTO shows (id, title, air_date, overview, rating)
+                VALUES (%(id)s, %(name)s, %(first_air_date)s, %(overview)s, %(vote_average)s)
+                ON CONFLICT DO NOTHING;
+                """
+
+            try:
+                execute_dml_statement(statement, show)
+            except DataError:
+                print('Error while inserting ' + show['name'] + '. Skipping this show...')
+            else:
+                insert_genres_of_show(show['genre_ids'], show)
+                insert_seasons_of_show(show['id'])
+
+            total_counter += 1
+
             # If max_show_count is not dividable by the limit, we have to jump out before processing all received shows
             if total_counter >= max_show_count:
                 break
 
-            show = get_show_entity(show_raw)
-
-            # Some shorts have no id, some has no date, etc... Skip these
-            if show['id'] is None or show['year'] is None:
-                continue
-
-            statement = """
-                INSERT INTO shows (id, title, year, overview, runtime, trailer, homepage, rating)
-                VALUES (%(id)s, %(title)s, %(year)s, %(overview)s, %(runtime)s, %(trailer)s, %(homepage)s, %(rating)s);"""
-
-            try:
-                execute_dml_statement(statement, show)
-                inserted_ids.append(show['id'])
-
-                if len(show['genres']) > 0:
-                    genre_ids = get_genre_ids(show['genres'])
-                    insert_genres_of_show(genre_ids, show)
-
-            except DataError:
-                print('Error while inserting ' + show['title'] + '. Skipping this show...')
-            # except IntegrityError:
-            #    print('Show (' + show['title'] + ') already exists...')
-
-            insert_seasons_of_show(show['id'])
-            insert_cast_of_show(show['id'])
-
-            progress_bar(total_counter + 1, max_show_count, prefix='Inserting shows:', suffix=show['title'])
-            total_counter += 1
-
-    clear_progress_bar('Inserted ' + str(len(inserted_ids)) + ' shows')
-    return inserted_ids
-
-
-def insert_seasons_of_show(show_id):
-    url = f'{TRAKT_API_URL}/shows/{str(show_id)}/seasons?extended=full,episodes'
-    season_request = requests.get(url, headers=headers)
-    for season_raw in season_request.json():
-        statement = """
-            INSERT INTO seasons ( id, season_number, title, overview, show_id)
-            VALUES (%(id)s, %(season_number)s, %(title)s, %(overview)s, %(show_id)s);
-        """
-
-        season = get_season_entity(season_raw, show_id)
-        execute_dml_statement(statement, season)
-
-        insert_episodes_of_season(season)
-
-
-def insert_cast_of_show(show_id):
-    url = "{api_url}/shows/{show_id}/people?extended=full".format(
-        api_url=TRAKT_API_URL,
-        show_id=show_id
-    )
-
-    result_set = requests.get(url, headers=headers).json()
-
-    if 'cast' in result_set:
-        for actor in result_set['cast']:
-            insert_actor_of_show(show_id, actor)
+    clear_progress_bar('Inserted ' + str(total_counter) + ' shows')
 
 
 def insert_genres_of_show(genre_ids, show_entity):
     for genre_id in genre_ids:
         execute_dml_statement("""
             INSERT INTO show_genres (show_id, genre_id)
-            VALUES (%(show_id)s, %(genre_id)s); """, {
+            VALUES (%(show_id)s, %(genre_id)s)
+            ON CONFLICT DO NOTHING; """, {
             'show_id': show_entity['id'],
             'genre_id': genre_id
         })
 
 
-def insert_actor_of_show(show_id, actor):
-    actor_id = actor['person']['ids']['trakt']
-    existing_actor = execute_select("SELECT id FROM actors WHERE id=%(actor_id)s", {'actor_id': actor_id})
+def insert_seasons_of_show(show_id):
+    show_details = tmdb.TV(show_id).info(append_to_response="credits")
+    show_credits = show_details.get('credits', {})
+    insert_actors_of_type('show', show_details['id'], show_credits.get('cast', []))
+    for i, season_raw in enumerate(show_details['seasons']):
+        statement = """
+            INSERT INTO seasons (id, season_number, air_date, episode_count, poster_path, title, overview, show_id)
+            VALUES (%(id)s, %(season_number)s, %(air_date)s, %(episode_count)s,
+                    %(poster_path)s, %(name)s, %(overview)s, %(show_id)s)
+            ON CONFLICT DO NOTHING;
+        """
+        season = get_season_entity(season_raw, show_id)
+        execute_dml_statement(statement, season)
+        insert_episodes_of_season(show_id, season['season_number'])
+        progress_bar(i + 1, len(show_details['seasons']),
+                     prefix='Inserting seasons:',
+                     suffix=f"{show_details['name']} - {season['name']}")
 
-    if len(existing_actor) == 0:
-        execute_dml_statement("""
-            INSERT INTO actors (id, name, birthday, death, biography)
-            VALUES (%(id)s, %(name)s, %(birthday)s, %(death)s, %(biography)s);
-        """, {
-            "id": actor_id,
-            "name": actor['person']['name'],
-            "birthday": actor['person']['birthday'],
-            "death": actor['person']['death'],
-            "biography": actor['person']['biography']
+
+def insert_episodes_of_season(show_id, season_number):
+    season_details = tmdb.TV_Seasons(show_id, season_number).info(append_to_response="credits")
+    episodes = season_details['episodes']
+
+    season_credits = season_details.get('credits', {})
+    insert_actors_of_type('season', season_details['id'], season_credits.get('cast', []))
+
+    for i, episode in enumerate(episodes):
+        stmt = """
+            INSERT INTO episodes (id, title, episode_number, overview, season_id)
+            VALUES (%(id)s, %(title)s, %(episode_number)s, %(overview)s, %(season_id)s)
+            ON CONFLICT DO NOTHING;
+        """
+        execute_dml_statement(stmt, get_episode_entity(season_details["id"], episode))
+        # episode_credits = tmdb.TV_Episodes(show_id, season_number, episode['episode_number']).credits()
+        # insert_actors_of_type('episode', episode['id'], episode_credits.get('cast', []))
+        progress_bar(i + 1, len(episodes),
+                     prefix='Inserting episodes:',
+                     suffix=f"{season_details['name']} - {episode['name']}")
+
+
+def insert_actors_of_type(cast_type, type_id, cast):
+    for actor in cast:
+        insert_actor(actor)
+        query = sql.SQL("""
+            INSERT INTO {0} ({1}, actor_id, character_name)
+            VALUES (%(type_id)s, %(actor_id)s, %(character_name)s)
+            ON CONFLICT DO NOTHING;
+        """).format(
+            sql.Identifier(ACTOR_TYPE[cast_type]['table']),
+            sql.Identifier(ACTOR_TYPE[cast_type]['id']),
+        )
+        execute_dml_statement(query, {
+            'type_id': type_id,
+            'actor_id': actor['id'],
+            'character_name': actor['character']
         })
 
+
+def insert_actor(actor):
     execute_dml_statement("""
-        INSERT INTO show_characters (show_id, actor_id, character_name)
-        VALUES (%(show_id)s, %(actor_id)s, %(character_name)s)
+        INSERT INTO actors
+            (id, name, gender, profile_path, birthday, death, biography, popularity, place_of_birth, homepage)
+        VALUES (%(id)s, %(name)s, %(gender)s, %(profile_path)s, %(birthday)s, %(death)s,
+                        %(biography)s, %(popularity)s, %(place_of_birth)s, %(homepage)s)
+        ON CONFLICT(id) DO UPDATE SET 
+            (name, gender, profile_path, birthday, death, biography, popularity, place_of_birth, homepage)
+            = (%(name)s, %(gender)s, %(profile_path)s, %(birthday)s, %(death)s,
+                        %(biography)s, %(popularity)s, %(place_of_birth)s, %(homepage)s);
     """, {
-        'show_id': show_id,
-        'actor_id': actor_id,
-        'character_name': actor['character']
+        "id": actor.get('id', None),
+        "name": actor.get('name', None),
+        "gender": actor.get('gender', None),
+        "profile_path": actor.get('profile_path', None),
+        "birthday": actor.get('birthday', None),
+        "death": actor.get('deathday', None),
+        "biography": actor.get('biography', None),
+        "popularity": actor.get('popularity', None),
+        "place_of_birth": actor.get('place_of_birth', None),
+        "homepage": actor.get('homepage', None),
     })
 
 
-def insert_episodes_of_season(season):
-    for episode in season['episodes']:
-        stmt = """
-            INSERT INTO episodes (
-                id,
-                title,
-                episode_number,
-                overview,
-                season_id)
-            VALUES (
-                %(id)s,
-                %(title)s,
-                %(episode_number)s,
-                %(overview)s,
-                %(season_id)s
-            );
-        """
-        execute_dml_statement(stmt, get_episode_entity(season['id'], episode))
+def update_actors():
+    actors = execute_select("SELECT id FROM actors WHERE popularity ISNULL ORDER BY id")
+    for i, actor in enumerate(actors):
+        progress_bar(i, len(actors), prefix='Updating actors:')
+        try:
+            actor_data = tmdb.People(actor['id']).info(append_to_response="images")
+        except requests.HTTPError:
+            print(f"Error while updating actor with id: {actor['id']} Skipping this actor...")
+        else:
+            insert_actor(actor_data)
 
 
 def get_show_entity(show):
     show_entity = {
-        'id': show['ids']['trakt'],
+        'id': show['id'],
         'title': show['title'],
-        'year': None,
+        'air_date': show['first_air_date'] if show['first_air_date'] != '' else None,
         'overview': show['overview'],
         'runtime': show['runtime'],
         'trailer': show['trailer'],
@@ -195,44 +215,56 @@ def get_show_entity(show):
         pass
     return show_entity
 
+    # "backdrop_path": "/gX8SYlnL9ZznfZwEH4KJUePBFUM.jpg",
+    # "episode_run_time": [60],
+    # "first_air_date": "2011-04-17",
+    # "homepage": "http://www.hbo.com/game-of-thrones",
+    # "id": 1399,
+    # "in_production": true,
+    # "languages": ["es", "en", "de"],
+    # "last_air_date": "2017-08-27",
+    # "name": "Game of Thrones",
+    # "number_of_episodes": 67,
+    # "number_of_seasons": 7,
+    # "origin_country": ["US"],
+    # "original_language": "en",
+    # "original_name": "Game of Thrones",
+    # "overview": "Seven noble families...",
+    # "popularity": 53.516,
+    # "poster_path": "/gwPSoYUHAKmdyVywgLpKKA4BjRr.jpg",
+    # "status": "Returning Series",
+    # "type": "Scripted",
+    # "vote_average": 8.2,
+    # "vote_count": 4682
+
 
 def get_season_entity(season, show_id):
-    season_entity = {
-        'id': season['ids']['trakt'],
-        'season_number': season['number'],
-        'title': season['title'],
+    return {
+        'id': season['id'],
+        'season_number': season['season_number'],
+        'name': season['name'],
         'overview': season['overview'],
-        'episodes': [],
         'episode_count': season['episode_count'],
+        'poster_path': season['poster_path'],
+        'air_date': season['air_date'],
         'show_id': show_id
     }
-    if 'episodes' in season:
-        season_entity['episodes'] = season['episodes']
-
-    return season_entity
 
 
 def get_episode_entity(season_id, episode):
     return {
-        'id': episode['ids']['trakt'],
-        'title': episode['title'],
-        'episode_number': episode['number'],
+        'id': episode['id'],
+        'title': episode['name'],
+        'episode_number': episode['episode_number'],
         'overview': episode['overview'],
         'season_id': season_id
     }
 
 
-def get_genre_ids(genre_list):
-    genres = tuple((g.title() for g in genre_list))
-    id_result = execute_select("SELECT id FROM genres WHERE name IN %s;", (genres,))
-    genre_ids = [result['id'] for result in id_result]
-    return genre_ids
-
-
 # original: https://stackoverflow.com/a/27871113/2205458
 def progress_bar(count, total, prefix='', suffix=''):
-    max_prefix_length = 18
-    max_suffix_length = 18
+    max_prefix_length = 20
+    max_suffix_length = 35
     terminal_width = get_terminal_width()
     prefix = trim_string(prefix, max_prefix_length)
     suffix = trim_string(suffix, max_suffix_length, False)
