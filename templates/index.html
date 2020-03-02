@@ -55,14 +55,8 @@
                 navigation.
             </p>
         </div>
-        <div class="card">
-            <ul>
-                {% for show in shows %}
-                    <li>
-                        <a href="{{ '/tv-show/' + (show['id'] | string) }}">{{ show['title'] }}</a>
-                    </li>
-                {% endfor %}
-            </ul>
+        <div class="card" id="tableHolder">
+
         </div>
     </section>
     <footer>
@@ -74,4 +68,6 @@
     <div class="light-blue-layer"></div>
 </div>
 </body>
+
+<script src="{{ url_for('static', filename = 'scripts/index_page.js') }}" defer></script>
 </html>
