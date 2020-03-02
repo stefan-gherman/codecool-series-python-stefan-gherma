@@ -64,6 +64,10 @@ def get_shows():
     print(len(legit_dict))
     return make_response(jsonify(legit_dict), 200)
 
+@app.route('/show/<show_id>')
+def return_show_page(show_id):
+    print(show_id)
+    return render_template('show_page.html')
 
 def main():
     app.run(debug=True)
