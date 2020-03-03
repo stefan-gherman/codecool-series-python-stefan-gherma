@@ -44,7 +44,7 @@ def get_shows():
                     inner_dict['run_time'] = obj['run_time']
                     inner_dict['rating'] = obj['rtg']
                     inner_dict['genres'] = [obj['name']]
-                    inner_dict['show_id'] = obj['show_id']
+                    inner_dict['show_id'] = obj['id']
                     legit_dict.append(inner_dict)
                     break
 
