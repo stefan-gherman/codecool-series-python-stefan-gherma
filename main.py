@@ -4,23 +4,10 @@ from data import queries
 app = Flask('codecool_series')
 
 
-@app.route('/')
-def index():
-    return render_template('index.html')
+def transform_obj(shows: list):
+    json_shows = []
 
-
-@app.route('/design')
-def design():
-    return render_template('design.html')
-
-
-@app.route('/get-shows')
-def get_shows():
-    shows = queries.get_shows()
-
-    json_shows = [];
-
-    i = 0;
+    i = 0
     for i in range(len(shows)):
         inner = {}
         for key in shows[i].keys():
@@ -48,7 +35,7 @@ def get_shows():
                     legit_dict.append(inner_dict)
                     break
 
-            except(IndexError):
+            except IndexError:
                 inner_dict['title'] = obj['title']
                 inner_dict['year'] = obj['year']
                 inner_dict['run_time'] = obj['run_time']
@@ -62,12 +49,45 @@ def get_shows():
         j = 0
 
     print(len(legit_dict))
+    return legit_dict
+
+
+@app.route('/')
+def index():
+    return render_template('index.html')
+
+
+@app.route('/design')
+def design():
+    return render_template('design.html')
+
+
+@app.route('/get-shows')
+def get_shows():
+    shows = queries.get_shows()
+
+    legit_dict = transform_obj(shows)
+    return make_response(jsonify(legit_dict), 200)
+
+
+@app.route('/get-shows-param', methods=['POST'])
+def return_shows_ordered_by_param():
+    req = request.get_json()
+    print(req)
+    ordering = req['order']
+    param = req['param']
+
+    print(ordering, param)
+    shows = queries.get_shows_with_param(param, ordering)
+    legit_dict = transform_obj(shows)
+
     return make_response(jsonify(legit_dict), 200)
 
 @app.route('/show/<show_id>')
 def return_show_page(show_id):
     print(show_id)
     return render_template('show_page.html')
+
 
 def main():
     app.run(debug=True)
