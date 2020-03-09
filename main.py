@@ -73,20 +73,28 @@ def get_shows():
 @app.route('/get-shows-param', methods=['POST'])
 def return_shows_ordered_by_param():
     req = request.get_json()
-    print(req)
     ordering = req['order']
     param = req['param']
 
-    print(ordering, param)
     shows = queries.get_shows_with_param(param, ordering)
     legit_dict = transform_obj(shows)
 
     return make_response(jsonify(legit_dict), 200)
 
+
 @app.route('/show/<show_id>')
 def return_show_page(show_id):
     print(show_id)
-    return render_template('show_page.html')
+    show_id = int(show_id)
+    show = queries.get_show_from_id(show_id)
+    cast = queries.get_cast_for_show(show_id)
+    show[0]['actors'] = cast[0]['actors']
+    show[0]['year'] = str(show[0]['year'])
+    show[0]['characters'] = cast[0]['characters']
+    if show[0]['trailer']:
+        show[0]['trailer'] = show[0]['trailer'][-11:]
+    print(show)
+    return render_template('show_page.html', show=show)
 
 
 def main():
