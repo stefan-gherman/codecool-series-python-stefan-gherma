@@ -137,6 +137,46 @@
             </table>
         </div>
 
+    {% for season in show[0].seasons %}
+        <div class="card">
+            <h2>{{ season.title }}</h2>
+            {% if season.overview != None %}
+            <p>{{ season.overview }}</p>
+        {% endif %}
+        <h3>Episodes</h3>
+        <table>
+            <thead>
+            <th>
+                Episode Number
+            </th>
+            <th>
+                Episode Title
+            </th>
+            <th>
+                Episode Description
+            </th>
+            </thead>
+            <tbody>
+                {% for i in range(season.episode_number | length) %}
+                    <tr>
+                    <td>
+                      {{ season.episode_number[i] }}
+                    </td>
+                    <td>
+                        {{ season.episode_title[i] }}
+                    </td>
+                    <td>
+                        {%  if season.episode_description[i] != None %}
+                        {{ season.episode_description[i] }}
+                        {%  endif %}
+                    </td>
+                    </tr>
+                    {%  endfor  %}
+            </tbody>
+        </table>
+        </div>
+    {% endfor %}
+
     </section>
     <footer>
         Copyright, bla-bla
