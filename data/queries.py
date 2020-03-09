@@ -31,3 +31,15 @@ def get_cast_for_show(show_id):
         f" WHERE shows.id = {show_id}"
         f" GROUP BY shows.id;"
     )
+
+def get_seasons_for_show(show_id):
+    return data_manager.execute_select(
+        f" SELECT seasonS.title, seasons.overview, seasons.id, array_agg(episodes.episode_number order by episodes.episode_number ) "
+        f" as episode_number, array_agg(episodes.title order by episodes.episode_number ) as episode_title, "
+        f" array_agg(episodes.overview order by episodes.episode_number) as episode_description "
+        f" FROM seasons "
+        f" JOIN episodes  ON seasons.id = episodes.season_id JOIN shows on seasons.show_id = shows.id "
+        f" WHERE shows.id = {show_id} "
+        f" GROUP BY seasons.title, seasons.overview, seasons.id"
+        f" ORDER BY CAST(seasons.season_number as int);"
+    )
