@@ -20,3 +20,14 @@ def get_show_from_id(show_id):
         f" where shows.id = {show_id}"
         f" GROUP BY shows.title, shows.id, shows.year, shows.overview, shows.trailer;"
     )
+
+
+def get_cast_for_show(show_id):
+    return data_manager.execute_select(
+        f" SELECT array_agg(actors.name) as actors, array_agg(show_characters.character_name) as characters"
+        f" FROM actors "
+        f" JOIN show_characters ON actors.id = show_characters.actor_id"
+        f" JOIN shows ON show_characters.show_id = shows.id"
+        f" WHERE shows.id = {show_id}"
+        f" GROUP BY shows.id;"
+    )
