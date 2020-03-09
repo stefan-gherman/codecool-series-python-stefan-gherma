@@ -46,7 +46,7 @@
     </header>
     <section>
         <h1 class="title text-center">Welcome page</h1>
-        <div class="card">
+        <div class="card" id="dummyPage">
             <h2>Welcome TV show lovers!</h2>
             <p>This great site is happy to bring you your favourite TV show's <i>details</i>.</p>
             <p></p>
@@ -56,19 +56,85 @@
                 navigation.
             </p>
         </div>
-        <div class="card">
 
-        </div>
         <div class="card detailed-view">
             <div class="row">
-                <img src class="poster col col-third">
-                <div class="col col-twothird">
-
+            {%  if show[0].trailer %}
+                <iframe width="300" height="300" src="https://www.youtube.com/embed/{{ show[0].trailer }}">
+                    Trailer not available.
+                </iframe>
+            {% endif %}
+                <div class="col col-twothird" id="description">
+                    <h2>{{ show[0].title }}</h2>
+                    <p class="small grayed"><span class="separator">|</span>{{ show[0].year }}<span
+                            class="separator">|</span>
+                        {% if show[0].genres| length < 3 %}
+                            {% for i in range(show[0].genres|length) %}
+                                {% if i < show[0].genres| length - 1 %}
+                                    {{ show[0].genres[i] }},
+                                {% else %}
+                                    {{ show[0].genres[i] }}
+                                {% endif %}
+                            {% endfor %}
+                        {% else %}
+                            {% for i in range(3) %}
+                                {% if i < show[0].genres| length - 1 %}
+                                    {{ show[0].genres[i] }},
+                                {% else %}
+                                    {{ show[0].genres[i] }}
+                                {% endif %}
+                            {% endfor %}
+                        {% endif %} <span class="separator">|</span>
+                    </p>
+                    <p>
+                        {{ show[0].overview }}
+                    </p>
                 </div>
             </div>
             <div>
 
+
+                <p><b>Stars:</b>{% if show[0].actors| length < 3 %}
+                    {% for i in range(show[0].actors|length) %}
+                        {% if i < show[0].actors| length - 1 %}
+                            <a href="#">{{ show[0].actors[i] }}</a>,
+                        {% else %}
+                            <a href="#">{{ show[0].actors[i] }}</a>
+                        {% endif %}
+                    {% endfor %}
+                {% else %}
+                    {% for i in range(3) %}
+                        {% if i < show[0].actors| length - 1 %}
+                            <a href="#">{{ show[0].actors[i] }}</a>,
+                        {% else %}
+                            <a href="#">{{ show[0].actors[i] }}</a>
+                        {% endif %}
+                    {% endfor %}
+                {% endif %}
+
             </div>
+        </div>
+
+        <div class="card">
+            <h2>Cast</h2>
+            <table>
+                <thead>
+                <th>Actor</th>
+                <th>Character</th>
+                </thead>
+                <tbody>
+                {% for i in range(show[0].actors | length) %}
+                    <tr>
+                    <td>
+                        {{ show[0].actors[i] }}
+                    </td>
+                    <td>
+                        {{ show[0].characters[i] }}
+                    </td>
+                    </tr>
+                {% endfor %}
+                </tbody>
+            </table>
         </div>
 
     </section>
@@ -80,6 +146,7 @@
     <div class="dark-blue-layer"></div>
     <div class="light-blue-layer"></div>
 </div>
+<script src="{{ url_for('static', filename='scripts/show_page.js') }}" defer></script>
 </body>
 
 </html>
