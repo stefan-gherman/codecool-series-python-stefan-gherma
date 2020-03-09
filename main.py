@@ -88,6 +88,8 @@ def return_show_page(show_id):
     show_id = int(show_id)
     show = queries.get_show_from_id(show_id)
     cast = queries.get_cast_for_show(show_id)
+    seasons = queries.get_seasons_for_show(show_id)
+    show[0]['seasons'] = seasons
     show[0]['actors'] = cast[0]['actors']
     show[0]['year'] = str(show[0]['year'])
     show[0]['characters'] = cast[0]['characters']
