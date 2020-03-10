@@ -78,7 +78,7 @@
                             {% endfor %}
                         {% else %}
                             {% for i in range(3) %}
-                                {% if i < show[0].genres| length - 1 %}
+                                {% if i < 3 - 1 %}
                                     {{ show[0].genres[i] }},
                                 {% else %}
                                     {{ show[0].genres[i] }}
@@ -104,7 +104,7 @@
                     {% endfor %}
                 {% else %}
                     {% for i in range(3) %}
-                        {% if i < show[0].actors| length - 1 %}
+                        {% if i < 3 - 1 %}
                             <a href="#">{{ show[0].actors[i] }}</a>,
                         {% else %}
                             <a href="#">{{ show[0].actors[i] }}</a>
